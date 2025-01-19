@@ -1,6 +1,5 @@
 // components/DCFCalculator.tsx
 "use client";
-
 import { useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
@@ -37,6 +36,9 @@ export default function DCFCalculator(props: {
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [years, setYears] = useState<number[]>([
+    2023, 2024, 2025, 2026, 2027, 2028,
+  ]);
 
   const handleFinancialDataFetched = (data: Partial<FormData>) => {
     setFormData((prev) => ({
@@ -56,15 +58,63 @@ export default function DCFCalculator(props: {
     }
   };
 
+  const handleFileUpload = (data: Partial<FormData>) => {
+    setFormData((prev) => ({
+      ...prev,
+      ...data,
+      // Override only the values from the uploaded file
+      revenue: data.revenue ?? prev.revenue,
+      ebit: data.ebit ?? prev.ebit,
+      taxes: data.taxes ?? prev.taxes,
+      d_and_a: data.d_and_a ?? prev.d_and_a,
+      capital_expenditure: data.capital_expenditure ?? prev.capital_expenditure,
+      change_in_net_working_capital:
+        data.change_in_net_working_capital ??
+        prev.change_in_net_working_capital,
+      // Optional: set additional parameters if provided in the file
+      ...(data.perpetual_growth_rate !== undefined && {
+        perpetual_growth_rate: data.perpetual_growth_rate,
+      }),
+      ...(data.exit_multiple !== undefined && {
+        exit_multiple: data.exit_multiple,
+      }),
+      ...(data.market_risk_premium !== undefined && {
+        market_risk_premium: data.market_risk_premium,
+      }),
+      ...(data.beta !== undefined && { beta: data.beta }),
+      ...(data.debt !== undefined && { debt: data.debt }),
+      ...(data.cash !== undefined && { cash: data.cash }),
+      ...(data.shares_outstanding !== undefined && {
+        shares_outstanding: data.shares_outstanding,
+      }),
+    }));
+  };
+
   const handleScalarChange = (name: string, value: number) => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleArrayChange = (name: string, index: number, value: number) => {
-    setFormData((prev) => ({
-      ...prev,
-      [name]: (prev[name] as number[]).map((v, i) => (i === index ? value : v)),
-    }));
+  const handleYearChange = (index: number, value: number) => {
+    const newYears = [...years];
+    newYears[index] = value;
+    setYears(newYears);
+  };
+
+  const handleYearArrayChange = (
+    name: string,
+    index: number,
+    value: number
+  ) => {
+    setFormData((prev) => {
+      const currentArray = prev[name] as number[];
+      // Ensure the array is long enough
+      const newArray = [...currentArray];
+      while (newArray.length <= index) {
+        newArray.push(newArray[newArray.length - 1] * 1.15); // Default growth
+      }
+      newArray[index] = value;
+      return { ...prev, [name]: newArray };
+    });
   };
 
   const calculateDCF = async (e: React.FormEvent) => {
@@ -73,10 +123,15 @@ export default function DCFCalculator(props: {
     setIsLoading(true);
 
     try {
+      const calculationData = {
+        ...formData,
+        projection_years: years.length,
+      };
+
       const response = await fetch("/api/calculate_dcf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(calculationData),
       });
 
       if (!response.ok) {
@@ -97,34 +152,29 @@ export default function DCFCalculator(props: {
     }
   };
 
-  // Render array inputs
-  const arrayInputs = Object.entries(formData)
-    .filter(([, value]) => Array.isArray(value))
-    .map(([field, values]) => (
-      <Card key={field} className="mb-4 p-4">
-        <h2 className="text-xl font-semibold mb-4">
-          {field.replace(/_/g, " ").toUpperCase()}
-        </h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          {(values as number[]).map((value, index) => (
-            <InputField
-              key={`${field}-${index}`}
-              label={`Year ${index + 1}`}
-              name={`${field}[${index}]`}
-              value={value}
-              onChange={(_name: string, newValue: number) =>
-                handleArrayChange(field, index, newValue)
-              }
-            />
-          ))}
-        </div>
-      </Card>
-    ));
-
   return (
     <div className="max-w-6xl mx-auto">
-      <TickerInput onDataFetched={handleFinancialDataFetched} />
+      <TickerInput
+        onDataFetched={handleFinancialDataFetched}
+        onFileUpload={handleFileUpload}
+      />
+
       <form onSubmit={calculateDCF} className="space-y-6">
+        <Card className="p-4">
+          <h2 className="text-xl font-semibold mb-4">Years of Analysis</h2>
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+            {years.map((year, index) => (
+              <InputField
+                key={index}
+                label={`Year ${index + 1}`}
+                name={`year-${index}`}
+                value={year}
+                onChange={(_, value) => handleYearChange(index, value)}
+              />
+            ))}
+          </div>
+        </Card>
+
         <Card className="p-4">
           <h2 className="text-xl font-semibold mb-4">Current Market Data</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -161,10 +211,6 @@ export default function DCFCalculator(props: {
               name="perpetual_growth_rate"
               value={formData.perpetual_growth_rate as number}
               onChange={handleScalarChange}
-              type="range"
-              min={-0.05}
-              max={0.15}
-              step={0.01}
             />
             <InputField
               label="Exit Multiple"
@@ -177,10 +223,6 @@ export default function DCFCalculator(props: {
               name="risk_free_rate"
               value={formData.risk_free_rate as number}
               onChange={handleScalarChange}
-              type="range"
-              min={0}
-              max={0.1}
-              step={0.001}
             />
             <InputField
               label="Market Risk Premium"
@@ -215,7 +257,34 @@ export default function DCFCalculator(props: {
           </div>
         </Card>
 
-        {arrayInputs}
+        {/* Dynamically render financial inputs with years */}
+        {[
+          "revenue",
+          "ebit",
+          "taxes",
+          "d_and_a",
+          "capital_expenditure",
+          "change_in_net_working_capital",
+        ].map((field) => (
+          <Card key={field} className="mb-4 p-4">
+            <h2 className="text-xl font-semibold mb-4">
+              {field.replace(/_/g, " ").toUpperCase()}
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {years.map((year, index) => (
+                <InputField
+                  key={`${field}-${index}`}
+                  label={`${year}`}
+                  name={`${field}[${index}]`}
+                  value={(formData[field] as number[])[index]}
+                  onChange={(_name: string, newValue: number) =>
+                    handleYearArrayChange(field, index, newValue)
+                  }
+                />
+              ))}
+            </div>
+          </Card>
+        ))}
 
         <button
           type="submit"
