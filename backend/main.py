@@ -221,6 +221,11 @@ async def calculate_dcf_endpoint(input_data: DCFInput):
         )  # Check this value
 
         discounted_cash_flows = []
+        for year in range(1, input_data.projection_years + 1):
+            discounted_cash_flows.append(
+                projected_cash_flows[year - 1] / (1 + wacc) ** year
+            )
+
         data = []
         for year in range(1, input_data.projection_years + 1):
             data.append(
@@ -242,11 +247,6 @@ async def calculate_dcf_endpoint(input_data: DCFInput):
                 / (1 + wacc) ** input_data.projection_years,
             }
         )
-
-        discounted_terminal_value = (
-            terminal_value / (1 + wacc) ** input_data.projection_years
-        )
-        discounted_cash_flows.append(discounted_terminal_value)
 
         # Set an explicit index by year
         df = pd.DataFrame(data).set_index("Year")
