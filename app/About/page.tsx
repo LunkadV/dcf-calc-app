@@ -14,8 +14,9 @@ export default function AboutPage() {
           <p className="text-gray-600">
             We aim to provide financial professionals and investors with a
             powerful, yet easy-to-use tool for company valuation through
-            Discounted Cash Flow analysis. Our goal is to make sophisticated
-            financial analysis accessible to everyone.
+            Discounted Cash Flow analysis. As well as provide a way for anyway
+            to learn about these valuation methods. Our goal is to make
+            sophisticated financial analysis accessible to everyone.
           </p>
         </div>
 
@@ -24,10 +25,9 @@ export default function AboutPage() {
             The Team
           </h2>
           <p className="text-gray-600">
-            Created by a team of financial analysts and software developers
-            passionate about making financial analysis more accessible and
-            accurate. We combine deep financial expertise with modern
-            technology.
+            Created by a group of students passionate about computer science and
+            finance. We aimed to build a product that could be used by those new
+            to the field but still prove usefull to professionals.
           </p>
         </div>
 
