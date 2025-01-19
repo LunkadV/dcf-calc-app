@@ -188,7 +188,6 @@ async def calculate_dcf_endpoint(input_data: DCFInput):
                 status_code=400,
                 detail="Input lists must have at least as many values as projection_years.",
             )
-
         projected_cash_flows = calculate_projected_cash_flows(
             input_data.revenue,
             input_data.ebit,
@@ -213,6 +212,15 @@ async def calculate_dcf_endpoint(input_data: DCFInput):
             input_data.weight_perpetuity,
             wacc,
         )
+        discounted_terminal_value = (
+            terminal_value / (1 + wacc) ** input_data.projection_years
+        )
+        print(f"Terminal Value (Before Response): {terminal_value}")  # Check this value
+        print(
+            f"Discounted Terminal Value (Before Response): {discounted_terminal_value}"
+        )  # Check this value
+
+        discounted_cash_flows = []
         data = []
         for year in range(1, input_data.projection_years + 1):
             data.append(
@@ -235,6 +243,11 @@ async def calculate_dcf_endpoint(input_data: DCFInput):
             }
         )
 
+        discounted_terminal_value = (
+            terminal_value / (1 + wacc) ** input_data.projection_years
+        )
+        discounted_cash_flows.append(discounted_terminal_value)
+
         # Set an explicit index by year
         df = pd.DataFrame(data).set_index("Year")
 
@@ -247,17 +260,16 @@ async def calculate_dcf_endpoint(input_data: DCFInput):
             input_data.cash,
             input_data.shares_outstanding,
         )
-        discounted_cash_flows = df[df.index != "Terminal"]["Present Value"].tolist()
-        discounted_terminal_value = df.loc["Terminal", "Present Value"]
-        return JSONResponse(
-            {
-                "implied_share_price": implied_share_price,
-                "discounted_cash_flows": discounted_cash_flows,
-                "terminal_value": terminal_value,
-                "discounted_terminal_value": discounted_terminal_value,
-                "current_share_price": input_data.current_share_price,
-            }
-        )
+        print(f"Implied Share Price (Before Response): {implied_share_price}")
+
+        response_data = {
+            "implied_share_price": implied_share_price,
+            "discounted_cash_flows": discounted_cash_flows,
+            "terminal_value": terminal_value,
+            "discounted_terminal_value": discounted_terminal_value,
+        }
+
+        return JSONResponse(response_data)
     except HTTPException as http_exc:
         raise http_exc
     except Exception as e:

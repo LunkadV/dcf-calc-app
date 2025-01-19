@@ -1,7 +1,6 @@
 "use client";
 import { useState, ChangeEvent, FormEvent } from "react";
 
-
 interface FormData {
   revenue: number[];
   ebit: number[];
@@ -24,10 +23,11 @@ interface FormData {
 }
 
 interface DCFResponse {
-  implied_share_price: number;
-  discounted_cash_flows: number[]; // Add this line
-  terminal_value: number; // Add this line
-  discounted_terminal_value: number; // Add this line
+  implied_share_price: number | null; // Make these nullable if the backend might send null
+  discounted_cash_flows: number[] | null;
+  terminal_value: number | null;
+  discounted_terminal_value: number | null;
+  current_share_price: number | null;
 }
 
 export default function Home() {
@@ -103,6 +103,13 @@ export default function Home() {
       setDiscountedCashFlows(data.discounted_cash_flows);
       setTerminalValue(data.terminal_value);
       setDiscountedTerminalValue(data.discounted_terminal_value);
+
+      console.log("State Values:", {
+        dcfValue,
+        discountedCashFlows,
+        terminalValue,
+        discountedTerminalValue,
+      });
     } catch (err: unknown) {
       // Type the error
       if (err instanceof Error) {
