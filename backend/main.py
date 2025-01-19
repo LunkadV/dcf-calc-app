@@ -1,10 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, validator
-from typing import List
 import numpy as np
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from functools import lru_cache
+from enum import Enum
+from typing import List, Literal
+
 
 app = FastAPI()
 
@@ -21,6 +23,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class UnitMultiplier(str, Enum):
+    ONES = "ones"
+    THOUSANDS = "thousands"
+    MILLIONS = "millions"
+    BILLIONS = "billions"
 
 
 class DCFInput(BaseModel):
@@ -42,6 +51,33 @@ class DCFInput(BaseModel):
     shares_outstanding: int = Field(..., gt=0)
     projection_years: int = Field(..., gt=0)
     current_share_price: float = Field(..., gt=0)
+    unit_multiplier: UnitMultiplier = Field(default=UnitMultiplier.MILLIONS)
+
+    def get_multiplier(self) -> float:
+        multipliers = {
+            UnitMultiplier.ONES: 1,
+            UnitMultiplier.THOUSANDS: 1_000,
+            UnitMultiplier.MILLIONS: 1_000_000,
+            UnitMultiplier.BILLIONS: 1_000_000_000,
+        }
+        return multipliers[self.unit_multiplier]
+
+    def apply_multiplier(self) -> None:
+        """Apply the unit multiplier to all relevant fields"""
+        multiplier = self.get_multiplier()
+
+        # Apply to array fields
+        self.revenue = [x * multiplier for x in self.revenue]
+        self.ebit = [x * multiplier for x in self.ebit]
+        self.d_and_a = [x * multiplier for x in self.d_and_a]
+        self.capital_expenditure = [x * multiplier for x in self.capital_expenditure]
+        self.change_in_net_working_capital = [
+            x * multiplier for x in self.change_in_net_working_capital
+        ]
+
+        # Apply to scalar fields
+        self.debt *= multiplier
+        self.cash *= multiplier
 
     @validator("projection_years")
     def validate_input_lengths(cls, v, values):
@@ -78,6 +114,10 @@ def calculate_wacc(
 
 def calculate_dcf_values(input_data: DCFInput):
     """Calculates all DCF values using numpy for vectorized operations."""
+
+    # Apply the unit multiplier to the input data
+    input_data.apply_multiplier()
+
     # Convert inputs to numpy arrays for faster calculations
     projection_years = input_data.projection_years
     years = np.arange(1, projection_years + 1)
