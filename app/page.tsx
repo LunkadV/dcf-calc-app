@@ -1,7 +1,7 @@
 'use client';
 import { useState, ChangeEvent, FormEvent } from 'react';
 
-// hi
+
 interface FormData {
   revenue: number[];
   ebit: number[];
