@@ -42,6 +42,7 @@ class DCFInput(BaseModel):
     cash: float
     shares_outstanding: int
     projection_years: int
+    current_share_price: float
 
 
 def calculate_projected_cash_flows(
@@ -246,7 +247,17 @@ async def calculate_dcf_endpoint(input_data: DCFInput):
             input_data.cash,
             input_data.shares_outstanding,
         )
-        return JSONResponse({"implied_share_price": implied_share_price})
+        discounted_cash_flows = df[df.index != "Terminal"]["Present Value"].tolist()
+        discounted_terminal_value = df.loc["Terminal", "Present Value"]
+        return JSONResponse(
+            {
+                "implied_share_price": implied_share_price,
+                "discounted_cash_flows": discounted_cash_flows,
+                "terminal_value": terminal_value,
+                "discounted_terminal_value": discounted_terminal_value,
+                "current_share_price": input_data.current_share_price,
+            }
+        )
     except HTTPException as http_exc:
         raise http_exc
     except Exception as e:
