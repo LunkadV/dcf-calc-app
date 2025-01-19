@@ -13,7 +13,7 @@ interface FinancialData {
   perpetual_growth_rate: number;
   market_risk_premium: number;
   current_share_price: number;
-  shares_outstanding?: number;
+  shares_outstanding: number;
   unit_multiplier: "millions";
 }
 
@@ -24,7 +24,10 @@ async function runPythonScript(ticker: string): Promise<FinancialData> {
       "scripts",
       "fetch_financials.py"
     );
-    const pythonProcess = spawn("python", [scriptPath, ticker]);
+
+    console.log(`Running script: ${scriptPath} with ticker: ${ticker}`);
+
+    const pythonProcess = spawn("python3", [scriptPath, ticker]);
 
     let dataString = "";
     let errorString = "";
@@ -44,8 +47,10 @@ async function runPythonScript(ticker: string): Promise<FinancialData> {
     });
 
     pythonProcess.on("close", (code) => {
+      console.log(`Python process exited with code ${code}`);
+
       if (code !== 0) {
-        console.error(`Python process exited with code ${code}`);
+        console.error("Error output:", errorString);
         reject(new Error(errorString || "Failed to fetch financial data"));
         return;
       }
@@ -53,13 +58,29 @@ async function runPythonScript(ticker: string): Promise<FinancialData> {
       try {
         const parsedData = JSON.parse(dataString) as FinancialData;
 
-        // Validate the current share price
-        if (typeof parsedData.current_share_price !== "number") {
-          throw new Error("Invalid or missing current share price");
+        // Validate the data
+        const requiredFields: (keyof FinancialData)[] = [
+          "revenue",
+          "ebit",
+          "taxes",
+          "d_and_a",
+          "capital_expenditure",
+          "change_in_net_working_capital",
+        ];
+
+        for (const field of requiredFields) {
+          if (
+            !Array.isArray(parsedData[field]) ||
+            !parsedData[field].every((val) => typeof val === "number")
+          ) {
+            throw new Error(`Invalid ${field}: must be an array of numbers`);
+          }
         }
 
         resolve(parsedData);
       } catch (parseError) {
+        console.error("Parsing error:", parseError);
+        console.error("Received data:", dataString);
         reject(
           new Error(
             `Invalid data format received from Python script: ${
@@ -87,15 +108,24 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(`Fetching data for ticker: ${ticker}`);
-    const data = await runPythonScript(ticker);
 
-    if (!data || typeof data !== "object") {
-      throw new Error("Invalid response from Python script");
+    try {
+      const data = await runPythonScript(ticker);
+      return NextResponse.json(data);
+    } catch (scriptError) {
+      console.error("Fetch financials error:", scriptError);
+      return NextResponse.json(
+        {
+          error:
+            scriptError instanceof Error
+              ? scriptError.message
+              : "Unknown error fetching financial data",
+        },
+        { status: 500 }
+      );
     }
-
-    return NextResponse.json(data);
   } catch (error) {
-    console.error("Error in fetch_financials route:", error);
+    console.error("Route error:", error);
     return NextResponse.json(
       {
         error:

@@ -147,7 +147,7 @@ export default function DCFCalculator(props: {
           <h2 className="text-xl font-semibold mb-4">DCF Parameters</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <InputField
-              label="Weight Perpetuity"
+              label="Perpetuity Growth Method vs Exit Multiple Method"
               name="weight_perpetuity"
               value={formData.weight_perpetuity as number}
               onChange={handleScalarChange}

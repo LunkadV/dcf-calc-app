@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Type-safe environment variables
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
-
-// Type definitions for input validation
+// Comprehensive type definition
 interface DCFInput {
   revenue: number[];
   ebit: number[];
@@ -23,32 +20,47 @@ interface DCFInput {
   shares_outstanding: number;
   projection_years: number;
   current_share_price: number;
+  unit_multiplier?: "ones" | "thousands" | "millions" | "billions";
 }
 
-// Custom error handler with type safety
-class APIError extends Error {
-  constructor(
-    public statusCode: number,
-    message: string,
-    public details?: unknown
-  ) {
-    super(message);
-    this.name = "APIError";
-  }
-}
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
-// Helper function to validate request body
-async function validateRequestBody(req: NextRequest): Promise<DCFInput> {
+export async function POST(req: NextRequest) {
   try {
+    // Parse the request body
     const body = await req.json();
 
-    // Basic validation
-    if (!body || typeof body !== "object") {
-      throw new APIError(400, "Invalid request body");
-    }
+    // Extensive logging
+    console.log(
+      "Received DCF calculation request body:",
+      JSON.stringify(body, null, 2)
+    );
 
-    // Validate required fields and types
-    const requiredArrayFields = [
+    // Validate and transform input
+    const validatedBody: DCFInput = {
+      revenue: body.revenue,
+      ebit: body.ebit,
+      taxes: body.taxes,
+      d_and_a: body.d_and_a,
+      capital_expenditure: body.capital_expenditure,
+      change_in_net_working_capital: body.change_in_net_working_capital,
+      perpetual_growth_rate: body.perpetual_growth_rate,
+      exit_multiple: body.exit_multiple,
+      weight_perpetuity: body.weight_perpetuity,
+      risk_free_rate: body.risk_free_rate,
+      market_risk_premium: body.market_risk_premium,
+      beta: body.beta,
+      debt_to_equity: body.debt_to_equity,
+      debt: body.debt,
+      cash: body.cash,
+      shares_outstanding: body.shares_outstanding,
+      projection_years: body.projection_years,
+      current_share_price: body.current_share_price,
+      unit_multiplier: body.unit_multiplier ?? "millions",
+    };
+
+    // Validate array fields
+    const arrayFields: (keyof DCFInput)[] = [
       "revenue",
       "ebit",
       "taxes",
@@ -57,74 +69,22 @@ async function validateRequestBody(req: NextRequest): Promise<DCFInput> {
       "change_in_net_working_capital",
     ];
 
-    for (const field of requiredArrayFields) {
-      if (
-        !Array.isArray(body[field]) ||
-        !body[field].every((item) => typeof item === "number")
-      ) {
-        throw new APIError(
-          400,
-          `Invalid ${field}: must be an array of numbers`
-        );
+    // Validate and ensure array fields are arrays of numbers
+    arrayFields.forEach((field) => {
+      const value = validatedBody[field];
+
+      // Ensure it's an array
+      if (!Array.isArray(value)) {
+        console.error(`${field} is not an array:`, value);
+        throw new Error(`${field} must be an array`);
       }
-    }
 
-    const requiredNumberFields = [
-      "perpetual_growth_rate",
-      "exit_multiple",
-      "weight_perpetuity",
-      "risk_free_rate",
-      "market_risk_premium",
-      "beta",
-      "debt_to_equity",
-      "debt",
-      "cash",
-      "shares_outstanding",
-      "projection_years",
-      "current_share_price",
-    ];
-
-    for (const field of requiredNumberFields) {
-      if (typeof body[field] !== "number") {
-        throw new APIError(400, `Invalid ${field}: must be a number`);
+      // Ensure all elements are numbers
+      if (!value.every((item) => typeof item === "number")) {
+        console.error(`${field} contains non-number elements:`, value);
+        throw new Error(`All elements in ${field} must be numbers`);
       }
-    }
-
-    return body as DCFInput;
-  } catch (error) {
-    if (error instanceof APIError) {
-      throw error;
-    }
-    throw new APIError(400, "Invalid request data");
-  }
-}
-
-// Helper function to handle FastAPI response
-async function handleFastAPIResponse(response: Response) {
-  const contentType = response.headers.get("content-type");
-  const isJson = contentType?.includes("application/json");
-
-  if (!response.ok) {
-    const errorData = isJson ? await response.json() : await response.text();
-    throw new APIError(
-      response.status,
-      "FastAPI error",
-      isJson ? errorData : { message: errorData }
-    );
-  }
-
-  if (!isJson) {
-    throw new APIError(500, "Invalid response from FastAPI: Expected JSON");
-  }
-
-  return response.json();
-}
-
-// Main API route handler
-export async function POST(req: NextRequest) {
-  try {
-    // Validate request body
-    const validatedBody = await validateRequestBody(req);
+    });
 
     // Make request to FastAPI
     const response = await fetch(`${API_URL}/calculate_dcf`, {
@@ -137,10 +97,32 @@ export async function POST(req: NextRequest) {
       cache: "no-store",
     });
 
-    // Process FastAPI response
-    const data = await handleFastAPIResponse(response);
+    // Log raw response
+    const responseText = await response.text();
+    console.log("Raw FastAPI response:", responseText);
 
-    // Return success response
+    // Parse response
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error("Failed to parse FastAPI response:", parseError);
+      return NextResponse.json(
+        { error: `Failed to parse response: ${responseText}` },
+        { status: 500 }
+      );
+    }
+
+    // Check for error in parsed response
+    if (data.error) {
+      console.error("FastAPI returned an error:", data.error);
+      return NextResponse.json(
+        { error: data.error },
+        { status: response.status }
+      );
+    }
+
+    // Return successful response
     return NextResponse.json(data, {
       status: 200,
       headers: {
@@ -149,32 +131,17 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    // Handle known errors
-    if (error instanceof APIError) {
-      return NextResponse.json(
-        {
-          error: error.message,
-          details: error.details,
-        },
-        { status: error.statusCode }
-      );
-    }
+    // Comprehensive error handling
+    console.error("DCF Calculation Error:", error);
 
-    // Handle unknown errors
-    console.error(
-      "Unexpected error:",
-      error instanceof Error ? error.message : error
-    );
     return NextResponse.json(
-      { error: "Internal server error" },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unexpected error during DCF calculation",
+      },
       { status: 500 }
     );
   }
 }
-
-// Configure API route options
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};

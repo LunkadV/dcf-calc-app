@@ -1,95 +1,109 @@
-# scripts/fetch_financials.py
 import sys
 import json
 import yfinance as yf
 import pandas as pd
-
-
-def debug_print(label, value):
-    print(f"\nDEBUG - {label}:", file=sys.stderr)
-    print(value, file=sys.stderr)
+import numpy as np
 
 
 def clean_array(values, fill_length=6, growth_rate=1.15):
-    # Remove any invalid values
-    cleaned = [float(val) for val in values if pd.notna(val) and float(val) != 0]
-    debug_print(f"Cleaned array from {len(values)} to {len(cleaned)} values", cleaned)
+    try:
+        cleaned = []
+        for val in values:
+            try:
+                # Convert to float, handling various input types
+                if isinstance(val, (int, float, np.number)):
+                    float_val = float(val)
+                elif isinstance(val, str):
+                    float_val = float(val.replace(",", ""))
+                else:
+                    continue
 
-    # Fill to required length
-    result = []
-    for i in range(fill_length):
-        if i < len(cleaned):
-            result.append(cleaned[i])
-        else:
-            last = result[-1] if result else 1000
-            result.append(last * growth_rate)
+                if pd.notna(float_val) and float_val != 0:
+                    cleaned.append(float_val)
+            except (ValueError, TypeError):
+                continue
 
-    return result
+        # Fill to required length
+        result = []
+        for i in range(fill_length):
+            if i < len(cleaned):
+                result.append(cleaned[i] / 1_000_000)  # Convert to millions
+            else:
+                last = result[-1] if result else 1000
+                result.append(last * growth_rate)
+
+        return [float(x) for x in result]
+
+    except Exception as e:
+        print(f"Error in clean_array: {e}", file=sys.stderr)
+        return [1000 * (1.15**i) for i in range(fill_length)]
 
 
 def fetch_financial_data(ticker: str):
     try:
         stock = yf.Ticker(ticker)
-        debug_print("Fetching data for ticker", ticker)
 
-        # Get statements
+        # Get financial statements
         income = stock.income_stmt
-        debug_print("Income Statement", income)
+        balance_sheet = stock.balance_sheet
 
         # Process Revenue
-        debug_print(
-            "Raw Revenue",
-            (
-                income.loc["Total Revenue"].values
-                if "Total Revenue" in income.index
-                else "No revenue found"
-            ),
-        )
+        revenue_sources = ["Total Revenue", "Revenues", "Revenue"]
         revenues = []
-        if "Total Revenue" in income.index:
-            raw_revenues = income.loc["Total Revenue"].values
-            revenues = clean_array([val / 1e6 for val in raw_revenues])
-        else:
+        for source in revenue_sources:
+            if source in income.index:
+                try:
+                    raw_revenues = income.loc[source].values
+                    revenues = clean_array(raw_revenues)
+                    if revenues:
+                        break
+                except Exception as e:
+                    print(f"Error processing {source}: {e}", file=sys.stderr)
+
+        # Fallback revenue
+        if not revenues:
             revenues = [1000 * (1.15**i) for i in range(6)]
-        debug_print("Processed Revenues", revenues)
 
         # Process EBIT
-        debug_print(
-            "Raw EBIT",
-            (
-                income.loc["Operating Income"].values
-                if "Operating Income" in income.index
-                else "No EBIT found"
-            ),
-        )
-        if "Operating Income" in income.index:
-            raw_ebit = income.loc["Operating Income"].values
-            ebits = clean_array([val / 1e6 for val in raw_ebit])
-        else:
+        ebit_sources = ["Operating Income", "Income from Operations"]
+        ebits = []
+        for source in ebit_sources:
+            if source in income.index:
+                try:
+                    raw_ebit = income.loc[source].values
+                    ebits = clean_array(raw_ebit)
+                    if ebits:
+                        break
+                except Exception as e:
+                    print(f"Error processing {source}: {e}", file=sys.stderr)
+
+        # Fallback EBIT
+        if not ebits:
             ebits = [rev * 0.15 for rev in revenues]
-        debug_print("Processed EBIT", ebits)
 
-        # Get market data
-        info = stock.info
-        current_price = info.get("regularMarketPrice", 0)
-        if not current_price:
-            current_price = float(stock.history(period="1d")["Close"].iloc[-1])
-        debug_print("Current Price", current_price)
+        # Market data
+        try:
+            info = stock.info
+            current_price = float(
+                info.get("regularMarketPrice", 0)
+                or stock.history(period="1d")["Close"].iloc[-1]
+            )
+            shares = float(info.get("sharesOutstanding", 100_000_000))
+            beta = float(info.get("beta", 1.1))
+        except Exception as e:
+            print(f"Error fetching market data: {e}", file=sys.stderr)
+            current_price = 50.0
+            shares = 100_000_000
+            beta = 1.1
 
-        shares = float(info.get("sharesOutstanding", 0))
-        beta = float(info.get("beta", 1.1))
-        debug_print("Market Info", {"shares": shares, "beta": beta})
-
-        # Prepare the output data
+        # Prepare output data
         data = {
             "revenue": revenues,
             "ebit": ebits,
             "taxes": [0.21] * 6,
-            "d_and_a": [rev * 0.05 for rev in revenues],  # 5% of revenue
-            "capital_expenditure": [rev * 0.07 for rev in revenues],  # 7% of revenue
-            "change_in_net_working_capital": [
-                rev * 0.02 for rev in revenues
-            ],  # 2% of revenue
+            "d_and_a": [rev * 0.05 for rev in revenues],
+            "capital_expenditure": [rev * 0.07 for rev in revenues],
+            "change_in_net_working_capital": [rev * 0.02 for rev in revenues],
             "beta": beta,
             "perpetual_growth_rate": 0.025,
             "market_risk_premium": 0.055,
@@ -98,20 +112,18 @@ def fetch_financial_data(ticker: str):
             "unit_multiplier": "millions",
         }
 
-        # Verify no NaN values in final data
+        # Final validation
         for key, value in data.items():
             if isinstance(value, list):
-                if any(pd.isna(x) for x in value):
-                    raise ValueError(f"NaN found in {key}: {value}")
-            elif pd.isna(value):
-                raise ValueError(f"NaN found in {key}: {value}")
+                if not all(isinstance(x, (int, float)) for x in value):
+                    raise ValueError(f"Invalid data type in {key}")
 
-        debug_print("Final Data", data)
         return data
 
     except Exception as e:
-        print(f"Error: {str(e)}", file=sys.stderr)
-        raise Exception(f"Error fetching data for {ticker}: {str(e)}")
+        error_msg = f"Error fetching data for {ticker}: {str(e)}"
+        print(f"DEBUG: {error_msg}", file=sys.stderr)
+        raise Exception(error_msg)
 
 
 if __name__ == "__main__":
@@ -122,7 +134,6 @@ if __name__ == "__main__":
     ticker = sys.argv[1].upper()
     try:
         data = fetch_financial_data(ticker)
-        # Final verification before JSON serialization
         print(json.dumps(data))
     except Exception as e:
         print(json.dumps({"error": str(e)}))

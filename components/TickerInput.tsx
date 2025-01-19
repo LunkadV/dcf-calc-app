@@ -1,4 +1,3 @@
-// components/TickerInput.tsx
 "use client";
 
 import { useState } from "react";
@@ -28,17 +27,34 @@ export default function TickerInput({ onDataFetched }: TickerInputProps) {
         body: JSON.stringify({ ticker: ticker.toUpperCase() }),
       });
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch data for ${ticker}`);
+      const data = await response.json();
+
+      // Check for error in response
+      if (data.error) {
+        throw new Error(data.error);
       }
 
-      const data = await response.json();
+      // Validate the response
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      console.log("Received financial data:", data);
+
+      // Set current price if available
       if (data.current_share_price) {
         setCurrentPrice(data.current_share_price);
       }
+
+      // Trigger data fetched callback
       onDataFetched(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch data");
+      console.error("Fetch error:", err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to fetch financial data for the given ticker"
+      );
     } finally {
       setIsLoading(false);
     }
